@@ -2,15 +2,19 @@
 
 extern crate zmq;
 extern crate msgpack;
+extern crate rustc;
+extern crate "rustc-serialize" as rustc_serialize;
 
-extern crate sync;
 extern crate collections;
 
 use std::rand;
-use sync::comm::{Receiver, Sender};
+use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::channel;
 use std::io;
+use std::old_io::timer;
 use std::time::Duration;
-use std::rand::{task_rng, Rng};
+use std::thread;
+//use std::rand::{task_rng, Rng};
 
 pub mod msg;
 
@@ -19,15 +23,15 @@ struct ConnTask {
     context: zmq::Context,
     requester: zmq::Socket,
     //poll_item: zmq::PollItem,
-    rx_chan: sync::comm::Receiver<msg::CrowdMsg>,
-    tx_chan: sync::comm::Sender<msg::CrowdMsg>
+    rx_chan: Receiver<msg::CrowdMsg>,
+    tx_chan: Sender<msg::CrowdMsg>
 }
 
 impl ConnTask {
-    fn new(name: String, rx_chan: sync::comm::Receiver<msg::CrowdMsg>, tx_chan: sync::comm::Sender<msg::CrowdMsg>) -> ConnTask {
+    fn new(name: String, rx_chan: Receiver<msg::CrowdMsg>, tx_chan: Sender<msg::CrowdMsg>) -> ConnTask {
         let mut ctx = zmq::Context::new();
         let sock = ctx.socket(zmq::DEALER).unwrap();
-        let x: uint = rand::random();
+        let x: u32 = rand::random();
         let mut identity = String::from_str("worker-");
         identity = identity + x.to_string();
         println!("id {}", identity);
@@ -43,16 +47,13 @@ impl ConnTask {
     fn connect(&mut self) {
         assert!(self.requester.connect("tcp://localhost:5555").is_ok());
         println!("Sending Hello");
-        let msg = msg::Hello(self.name.clone());
+        let msg = msg::CrowdMsg::Hello(self.name.clone());
         self.send(msg);
         self.recv();
         // TODO: raise errorr of conn failure
     }
 
     fn recv(&mut self) -> msg::CrowdMsg {
-        let pi = self.requester.as_poll_item(zmq::POLLIN);
-        let r: int = zmq::poll([pi], 100).ok().unwrap();
-
         let mut payload = zmq::Message::new();
         self.requester.recv(&mut payload, 0).unwrap();
         let b = payload.to_bytes();
@@ -75,28 +76,48 @@ impl Drop for ConnTask {
 }
 
 struct CrowdClient {
-    rx_chan: sync::comm::Receiver<msg::CrowdMsg>,
-    tx_chan: sync::comm::Sender<msg::CrowdMsg>
+    rx_chan: Receiver<msg::CrowdMsg>,
+    tx_chan: Sender<msg::CrowdMsg>
 }
 
-fn run_connection(name: String, rx_chan: sync::comm::Receiver<msg::CrowdMsg>, tx_chan: sync::comm::Sender<msg::CrowdMsg>) {
+fn run_connection(name: String, rx_chan: Receiver<msg::CrowdMsg>, tx_chan: Sender<msg::CrowdMsg>) {
     let mut conn = ConnTask::new(name, rx_chan, tx_chan);
     conn.connect();
     let mut stop = false;
     loop {
+        // check RX channel from master process
+        println!("ch rx");
         let smsg = conn.rx_chan.try_recv();
         match smsg {
             Ok(m) => {
                 match m {
-                    msg::Bye => stop = true,
+                    msg::CrowdMsg::Bye => stop = true,
                     _ => stop = false
                 }
                 conn.send(m);
-                let rmsg = conn.recv();
-                conn.tx_chan.send(rmsg);
+                //let rmsg = conn.recv();
+                //conn.tx_chan.send(rmsg);
             }
             _ => ()
         }
+
+        // check incoming msgs on connection to server
+        let pi = conn.requester.as_poll_item(zmq::POLLIN);
+        println!(">poll");
+        let rc = zmq::poll([pi], 1000).ok().unwrap();
+        if rc >= 0 {
+            println!("poll {}", rc);
+            println!("poll rev {}", pi.get_revents());
+            if pi.get_revents() == zmq::POLLIN {
+                let rmsg = conn.recv();
+                println!("conn sent");
+                conn.tx_chan.send(rmsg);
+                println!("ch tx");
+            }
+        } else {
+            println!("poll error {}", rc);
+        }
+
         if stop {
             break;
         }
@@ -108,7 +129,7 @@ impl CrowdClient {
         let (tx1, rx1) = channel();
         let (tx2, rx2) = channel();
 
-        spawn(proc() {
+        thread::spawn(move || {
             run_connection(name, rx2, tx1);
         });
 
@@ -121,32 +142,32 @@ impl CrowdClient {
     fn rpc(&mut self, msg: msg::CrowdMsg) -> Result<(), String> {
         self.tx_chan.send(msg);
         match self.rx_chan.recv() {
-            msg::Response(0) => Ok(()),
+            msg::CrowdMsg::Response(0) => Ok(()),
             _ => Err("failed".to_string())
         }
     }
 
     fn lock(&mut self, path: String) -> Result<(), String> {
         println!("do lock");
-        let msg = msg::Lock(path.clone());
+        let msg = msg::CrowdMsg::Lock(path.clone());
         self.rpc(msg)
     }
 
     fn unlock(&mut self, path: String) -> Result<(), String>  {
         println!("do unlock");
-        let msg = msg::Unlock(path.clone());
+        let msg = msg::CrowdMsg::Unlock(path.clone());
         self.rpc(msg)
     }
 
     fn keep_alive(&mut self) -> Result<(), String>  {
         println!("do keep alive");
-        let msg = msg::KeepAlive;
+        let msg = msg::CrowdMsg::KeepAlive;
         self.rpc(msg)
     }
 
     fn bye(&mut self) -> Result<(), String>  {
         println!("do bye");
-        let msg = msg::Bye;
+        let msg = msg::CrowdMsg::Bye;
         self.rpc(msg)
     }
 }
@@ -156,13 +177,13 @@ fn main() {
     println!("Connecting to crowd server...\n");
 
     let mut client = CrowdClient::new(String::from_str("myname"));
-    let mut rng = task_rng();
+    let mut rng = rand::thread_rng();
 
-    for x in range(0i, 1000i) {
+    for x in range(0, 1000) {
         let r = client.lock(String::from_str("/my/path"));
         println!("lock {}", r);
-        let ms: i64 = rng.gen_range(100u, 1000u).to_i64().unwrap();
-        io::timer::sleep(Duration::milliseconds(ms));
+        let ms: i64 = rng.gen_range(100, 1000).to_i64().unwrap();
+        timer::sleep(Duration::milliseconds(ms));
         let r = client.unlock(String::from_str("/my/path"));
         println!("unlock {}", r);
         //client.keep_alive();

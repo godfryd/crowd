@@ -1,76 +1,91 @@
+//#![allow(unused_must_use, dead_code)]
+//#![feature(io, core, rustc_private)]
+//extern crate serialize;
+
+//extern crate rustc;
+//extern crate "rustc-serialize" as rustc_serialize;
 extern crate msgpack;
-extern crate serialize;
 
-use std::io::{IoResult, IoError, InvalidInput};
+use rustc_serialize::{Encodable, Decodable, Encoder, Decoder};
+//use serialize::{Encodable, Decodable, Encoder, Decoder};
+use std::io::{Result, Error, ErrorKind};
+//use msgpack::{Decoder};
 
-//#[deriving(Decodable)]
-//#[deriving(Encodable)]
+
+//#[derive(RustcDecodable)]
+//#[derive(RustcEncodable)]
+#[derive(Debug)]
 pub enum CrowdMsg {
     Hello(String),
     Lock(String),
     TryLock(String),
     Unlock(String),
     KeepAlive,
-    Response(uint),
+    Response(u32),
     Bye
 }
 
-impl<'a> serialize::Decodable<msgpack::Decoder<'a>, IoError> for CrowdMsg {
-    fn decode(s: &mut msgpack::Decoder<'a>) -> IoResult<CrowdMsg> {
-        let cmd = try!(serialize::Decodable::decode(s));
+//impl<R: Reader> rustc_serialize::Decodable<msgpack::Decoder<R>, Error> for CrowdMsg {
+//impl<R: Reader> rustc_serialize::Decodable<R> for CrowdMsg {
+//    fn decode<D, R: Reader>(s: &mut rustc_serialize::Decoder<R>) -> Result<CrowdMsg>
+//        where D: rustc_serialize::Decoder<R> {
+impl<R: Reader> Decodable<R> for CrowdMsg {
+    fn decode<D, R: Reader>(s: &mut msgpack::Decoder<R>) -> Result<CrowdMsg> {
+        //let cmd = try!(rustc_serialize::Decodable::decode(s));
+        let cmd = try!(s.decode());
         match cmd {
-            0u => {
-                let arg = try!(serialize::Decodable::decode(s));
-                Ok(Hello(arg))
+            0 => {
+                let arg = try!(Decodable::decode(s));
+                Ok(CrowdMsg::Hello(arg))
             },
-            1u => {
-                let arg = try!(serialize::Decodable::decode(s));
-                Ok(Lock(arg))
+            1 => {
+                let arg = try!(Decodable::decode(s));
+                Ok(CrowdMsg::Lock(arg))
             },
-            2u => {
-                let arg = try!(serialize::Decodable::decode(s));
-                Ok(TryLock(arg))
+            2 => {
+                let arg = try!(Decodable::decode(s));
+                Ok(CrowdMsg::TryLock(arg))
             },
-            3u => {
-                let arg = try!(serialize::Decodable::decode(s));
-                Ok(Unlock(arg))
+            3 => {
+                let arg = try!(Decodable::decode(s));
+                Ok(CrowdMsg::Unlock(arg))
             },
-            4u => Ok(KeepAlive),
-            5u => {
-                let arg = try!(serialize::Decodable::decode(s));
-                Ok(Response(arg))
+            4 => Ok(CrowdMsg::KeepAlive),
+            5 => {
+                let arg = try!(Decodable::decode(s));
+                Ok(CrowdMsg::Response(arg))
             },
-            6u => Ok(Bye),
-            _ => Err(IoError{kind: InvalidInput, desc: "some problem", detail: None})
+            6 => Ok(CrowdMsg::Bye),
+            _ => Err(Error{kind: ErrorKind::InvalidInput, desc: "some problem", detail: None})
         }
     }
 }
 
-impl<'a> serialize::Encodable<msgpack::Encoder<'a>, IoError> for CrowdMsg {
-    fn encode(&self, s: &mut msgpack::Encoder<'a>) -> IoResult<()> {
+impl Encodable for CrowdMsg {
+    fn encode(&self, s: &mut msgpack::Encoder) -> Result<()> {
         match *self {
-            Hello(ref name) => {
-                try!(msgpack::Unsigned(0).encode(s));
+            CrowdMsg::Hello(ref name) => {
+                try!((0).encode(s));
                 name.encode(s)
             }
-            Lock(ref path) => {
-                try!(msgpack::Unsigned(1).encode(s));
+            CrowdMsg::Lock(ref path) => {
+                try!((1).encode(s));
                 path.encode(s)
             }
-            TryLock(ref path) => {
-                try!(msgpack::Unsigned(2).encode(s));
+            CrowdMsg::TryLock(ref path) => {
+                try!((2).encode(s));
                 path.encode(s)
             }
-            Unlock(ref path) => {
-                try!(msgpack::Unsigned(3).encode(s));
+            CrowdMsg::Unlock(ref path) => {
+                try!((3).encode(s));
                 path.encode(s)
             }
-            KeepAlive => msgpack::Unsigned(4).encode(s),
-            Response(ref code) => {
-                try!(msgpack::Unsigned(5).encode(s));
+            CrowdMsg::KeepAlive => (4).encode(s),
+            CrowdMsg::Response(ref code) => {
+                try!((5).encode(s));
                 code.encode(s)
             }
-            Bye => msgpack::Unsigned(6).encode(s)
+            CrowdMsg::Bye => (6).encode(s)
         }
     }
 }

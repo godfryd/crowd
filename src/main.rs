@@ -4,16 +4,17 @@
 /// Binds REP socket to tcp://*:5555
 /// Expects "Hello" from client, replies with "World"
 
+extern crate "rustc-serialize" as rustc_serialize;
 extern crate zmq;
 extern crate msgpack;
-extern crate time;
+//extern crate time;
 
 //use std::io;
 //use std::time::duration::Duration;
 use std::collections::HashMap;
-use std::collections::TreeMap;
-use std::collections::dlist::DList;
-use std::collections::{RingBuf, Deque};
+use std::collections::BTreeMap;
+use std::collections::linked_list::LinkedList;
+use std::collections::{VecDeque};
 use std::time::Duration;
 
 pub mod msg;
@@ -30,14 +31,14 @@ struct Session {
 struct Engine {
     sessions: HashMap<String, Session>,
     locks: HashMap<String, String>,
-    waiters: HashMap<String, RingBuf<String>>,
+    waiters: HashMap<String, VecDeque<String>>,
     //time_queue: TreeMap<time::Timespec, DirectedCrowdMsg>,
-    out_queue: DList<DirectedCrowdMsg>
+    out_queue: VecDeque<DirectedCrowdMsg>
 }
 
 impl Engine {
-    fn enqueue(&mut self, client_id: &String, resp: uint) {
-        self.out_queue.push(DirectedCrowdMsg { client_id: client_id.clone(), msg: msg::Response(resp) });
+    fn enqueue(&mut self, client_id: &String, resp: u32) {
+        self.out_queue.push(DirectedCrowdMsg { client_id: client_id.clone(), msg: msg::CrowdMsg::Response(resp) });
     }
     fn handle_hello(&mut self, client_id: &String, name: &String) {
         self.sessions.insert(client_id.clone(), Session { client_id: client_id.clone() });
@@ -56,7 +57,7 @@ impl Engine {
             //t.add(Duration::seconds(1))
             //self.time_queue.insert(t, DirectedCrowdMsg { client_id: client_id, msg: msg });
             if !self.waiters.contains_key(path) {
-                let mut l = RingBuf::new();
+                let mut l = VecDeque::new();
                 l.push(client_id.clone());
                 self.waiters.insert(path.clone(), l);
             } else {
@@ -128,7 +129,7 @@ fn main() {
         locks: HashMap::new(),
         //time_queue: TreeMap::new(),
         waiters: HashMap::new(),
-        out_queue: DList::new()
+        out_queue: VecDeque::new()
     };
 
     //let now = time::get_time(); // -> Timespec
@@ -155,13 +156,13 @@ fn main() {
         //println!("3");
 
         match dec {
-            msg::Hello(name) => eng.handle_hello(&client_id, &name),
-            msg::Lock(path) => eng.handle_lock(&client_id, &path),
-            msg::TryLock(path) => eng.handle_trylock(&client_id, &path),
-            msg::Unlock(path) => eng.handle_unlock(&client_id, &path),
-            msg::KeepAlive => eng.handle_keepalive(&client_id),
-            msg::Response(_) => eng.handle_keepalive(&client_id),
-            msg::Bye => eng.handle_bye(&client_id)
+            msg::CrowdMsg::Hello(name) => eng.handle_hello(&client_id, &name),
+            msg::CrowdMsg::Lock(path) => eng.handle_lock(&client_id, &path),
+            msg::CrowdMsg::TryLock(path) => eng.handle_trylock(&client_id, &path),
+            msg::CrowdMsg::Unlock(path) => eng.handle_unlock(&client_id, &path),
+            msg::CrowdMsg::KeepAlive => eng.handle_keepalive(&client_id),
+            msg::CrowdMsg::Response(_) => eng.handle_keepalive(&client_id),
+            msg::CrowdMsg::Bye => eng.handle_bye(&client_id)
         };
 
         eng.check_pending();
