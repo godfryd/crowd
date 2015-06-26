@@ -4,9 +4,9 @@
 /// Binds REP socket to tcp://*:5555
 /// Expects "Hello" from client, replies with "World"
 
-extern crate "rustc-serialize" as rustc_serialize;
+extern crate rustc_serialize;
 extern crate zmq;
-extern crate msgpack;
+extern crate rmp as msgpack;
 //extern crate time;
 
 //use std::io;
@@ -16,6 +16,8 @@ use std::collections::BTreeMap;
 use std::collections::linked_list::LinkedList;
 use std::collections::{VecDeque};
 use std::time::Duration;
+use msgpack::{Encoder, Decoder};
+use rustc_serialize::{Encodable, Decodable};
 
 pub mod msg;
 
@@ -140,19 +142,23 @@ fn main() {
 
     assert!(responder.bind("tcp://*:5555").is_ok());
 
-    let mut msg = zmq::Message::new();
+    let mut msg_addr = zmq::Message::new().unwrap();
+    let mut msg_empty = zmq::Message::new().unwrap();
+    let mut msg_data = zmq::Message::new().unwrap();
+    let mut pis = [responder.as_poll_item(zmq::POLLIN)];
     loop {
-        let pi = responder.as_poll_item(zmq::POLLIN);
-        zmq::poll([pi], 100).ok().unwrap();
+        zmq::poll(&mut pis, 100).ok().unwrap();
 
         //println!("waiting for msg");
-        let msg_id = responder.recv_msg(0).unwrap();
+        responder.recv(&mut msg_addr, 0).unwrap();
+        responder.recv(&mut msg_empty, 0).unwrap();
+        responder.recv(&mut msg_data, 0).unwrap();
         //println!("id {}", msg_id.to_string());
-        let client_id = msg_id.to_string();
-        msg = responder.recv_msg(0).unwrap();
-        let b = msg.to_bytes();
+        let client_id = msg_addr.to_string();
+
         //println!("msg {}", b);
-        let dec: msg::CrowdMsg = msgpack::from_msgpack(b).ok().unwrap();
+        let mut decoder = Decoder::new(&msg_data[..]);
+        let dec: msg::CrowdMsg = Decodable::decode(&mut decoder).ok().unwrap();
         //println!("3");
 
         match dec {

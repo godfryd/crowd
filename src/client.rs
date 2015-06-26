@@ -1,9 +1,9 @@
-#![crate_name = "crowd-client"]
+#![crate_name = "crowd_client"]
 
 extern crate zmq;
-extern crate msgpack;
+extern crate rmp as msgpack;
 extern crate rustc;
-extern crate "rustc-serialize" as rustc_serialize;
+extern crate rustc_serialize;
 
 extern crate collections;
 

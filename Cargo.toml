@@ -12,13 +12,16 @@ name = "crowd-client"
 path = "src/client.rs"
 
 [dependencies]
-rustc-serialize = "0.3.0"
+rustc-serialize = "0.3.15"
+zmq = "0.7.0"
+#msgpack = "0.1.0"
+rmp = "0.3.0"
 
-[dependencies.zmq]
-git = "https://github.com/erickt/rust-zmq.git"
+#[dependencies.zmq]
+#git = "https://github.com/erickt/rust-zmq.git"
 
-[dependencies.msgpack]
-git = "https://github.com/mneumann/rust-msgpack.git"
+#[dependencies.msgpack]
+#git = "https://github.com/mneumann/rust-msgpack.git"
 
-#[dependencies.chrono]
-#git = "https://github.com/lifthrasiir/rust-chrono"
+##[dependencies.chrono]
+##git = "https://github.com/lifthrasiir/rust-chrono"
