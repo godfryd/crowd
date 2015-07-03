@@ -12,111 +12,111 @@ extern crate rmp as msgpack;
 //use std::io;
 //use std::time::duration::Duration;
 use std::collections::HashMap;
-use std::collections::BTreeMap;
-use std::collections::linked_list::LinkedList;
+//use std::collections::BTreeMap;
+//use std::collections::linked_list::LinkedList;
 use std::collections::{VecDeque};
-use std::time::Duration;
+//use std::time::Duration;
 use msgpack::{Encoder, Decoder};
 use rustc_serialize::{Encodable, Decodable};
 
 pub mod msg;
 
 struct DirectedCrowdMsg {
-    client_id: String,
+    client_id: Vec<u8>,
     msg: msg::CrowdMsg
 }
 
 struct Session {
-    client_id: String
+    client_id: Vec<u8>
 }
 
 struct Engine {
-    sessions: HashMap<String, Session>,
-    locks: HashMap<String, String>,
-    waiters: HashMap<String, VecDeque<String>>,
+    sessions: HashMap<Vec<u8>, Session>,
+    locks: HashMap<String, Vec<u8>>,
+    waiters: HashMap<String, VecDeque<Vec<u8>>>,
     //time_queue: TreeMap<time::Timespec, DirectedCrowdMsg>,
     out_queue: VecDeque<DirectedCrowdMsg>
 }
 
 impl Engine {
-    fn enqueue(&mut self, client_id: &String, resp: u32) {
-        self.out_queue.push(DirectedCrowdMsg { client_id: client_id.clone(), msg: msg::CrowdMsg::Response(resp) });
+    fn enqueue(&mut self, client_id: Vec<u8>, resp: u32) {
+        self.out_queue.push_back(DirectedCrowdMsg { client_id: client_id.clone(), msg: msg::CrowdMsg::Response(resp) });
     }
-    fn handle_hello(&mut self, client_id: &String, name: &String) {
+    fn handle_hello(&mut self, client_id: Vec<u8>, name: String) {
         self.sessions.insert(client_id.clone(), Session { client_id: client_id.clone() });
+        println!("{:?}: name {}", client_id, name);
         self.enqueue(client_id, 0);
-        println!("{}: name {}", client_id, name);
     }
 
-    fn handle_lock(&mut self, client_id: &String, path: &String) {
-        if !self.locks.contains_key(path) {
+    fn handle_lock(&mut self, client_id: Vec<u8>, path: String) {
+        if !self.locks.contains_key(&path) {
             self.locks.insert(path.clone(), client_id.clone());
+            println!("{:?}: locked path {}", String::from_utf8(client_id.clone()).unwrap(), path);
             self.enqueue(client_id, 0);
-            println!("{}: locked path {}", client_id, path);
         } else {
-            println!("{}: delayed lock on {} - already locked", client_id, path);
+            println!("{:?}: blocked lock on {} - already locked", client_id, path);
             //let mut t = time::get_time();
             //t.add(Duration::seconds(1))
             //self.time_queue.insert(t, DirectedCrowdMsg { client_id: client_id, msg: msg });
-            if !self.waiters.contains_key(path) {
+            if !self.waiters.contains_key(&path) {
                 let mut l = VecDeque::new();
-                l.push(client_id.clone());
+                l.push_back(client_id.clone());
                 self.waiters.insert(path.clone(), l);
             } else {
-                self.waiters.get_mut(path).push(client_id.clone());
+                self.waiters.get_mut(&path).unwrap().push_back(client_id.clone());
             }
             //self.enqueue(client_id, 1);
         }
     }
 
-    fn handle_trylock(&mut self, client_id: &String, path: &String) {
-        if !self.locks.contains_key(path) {
+    fn handle_trylock(&mut self, client_id: Vec<u8>, path: String) {
+        if !self.locks.contains_key(&path) {
             self.locks.insert(path.clone(), client_id.clone());
+            println!("{:?}: trylocked path {}", client_id, path);
             self.enqueue(client_id, 0);
-            println!("{}: trylocked path {}", client_id, path);
         } else {
+            println!("{:?}: failed trylock on {}", client_id, path);
             self.enqueue(client_id, 1);
-            println!("{}: failed trylock on {}", client_id, path);
         }
     }
 
-    fn handle_unlock(&mut self, client_id: &String, path: &String) {
-        let entry = self.locks.find_copy(path);
+    fn handle_unlock(&mut self, client_id: Vec<u8>, path: String) {
+        let entry = self.locks.get(&path).cloned();
         match entry {
-            Some(cid) => {
-                if cid.as_slice() != client_id.as_slice() {
+            Some(ref cid) => {
+                if *cid != client_id {
+                    println!("{:?}: EEEE1 failed unlock on {} - locked by {:?}", client_id, path, cid);
                     self.enqueue(client_id, 1);
-                    println!("{}: EEEE1 failed unlock on {} - locked by {}", client_id, path, cid);
                 } else {
-                    self.locks.remove(path);
+                    self.locks.remove(&path);
+                    println!("{:?}: unlocked path {}", client_id, path);
                     self.enqueue(client_id, 0);
-                    println!("{}: unlocked path {}", client_id, path);
 
                     // notify first waiter
-                    if self.waiters.contains_key(path) {
-                        let c = self.waiters.get_mut(path).pop_front();
+                    if self.waiters.contains_key(&path) {
+                        let c = self.waiters.get_mut(&path).unwrap().pop_front();
                         if c.is_some() {
                             let new_client_id = c.unwrap();
                             self.locks.insert(path.clone(), new_client_id.clone());
-                            self.enqueue(&new_client_id, 0);
-                            println!("{}: lock path {} just after unlock", new_client_id, path);
+                            println!("{:?}: lock path {} just after unlock", new_client_id, path);
+                            self.enqueue(new_client_id, 0);
                         }
                     }
                 }
             }
             None => {
+                println!("{:?}: EEEE2 failed unlock on {}", client_id, path);
                 self.enqueue(client_id, 1);
-                println!("{}: EEEE2 failed unlock on {}", client_id, path);
             }
         }
     }
 
-    fn handle_keepalive(&mut self, client_id: &String) {
+    fn handle_keepalive(&mut self, client_id: Vec<u8>) {
+        println!("{:?}: keepalive", client_id);
         self.enqueue(client_id, 0);
-        println!("{}: keepalive", client_id);
     }
 
-    fn handle_bye(&mut self, client_id: &String) {
+    fn handle_bye(&mut self, client_id: Vec<u8>) {
         self.sessions.insert(client_id.clone(), Session { client_id: client_id.clone() });
     }
 
@@ -149,36 +149,42 @@ fn main() {
     loop {
         zmq::poll(&mut pis, 100).ok().unwrap();
 
-        //println!("waiting for msg");
+        //println!("waiting for msg 1");
         responder.recv(&mut msg_addr, 0).unwrap();
         responder.recv(&mut msg_empty, 0).unwrap();
         responder.recv(&mut msg_data, 0).unwrap();
-        //println!("id {}", msg_id.to_string());
-        let client_id = msg_addr.to_string();
+        //println!("id {:?}", &msg_addr[..]);
+        //println!("data {:?}", &msg_data[..]);
+        let client_id = msg_addr.to_vec();
 
-        //println!("msg {}", b);
         let mut decoder = Decoder::new(&msg_data[..]);
-        let dec: msg::CrowdMsg = Decodable::decode(&mut decoder).ok().unwrap();
+        let res = Decodable::decode(&mut decoder);
+        if res.is_err() {
+            println!("{:?}: erred msg {:?}", client_id, res.unwrap_err());
+            continue;
+        }
+        let dec: msg::CrowdMsg = res.ok().unwrap();
         //println!("3");
 
         match dec {
-            msg::CrowdMsg::Hello(name) => eng.handle_hello(&client_id, &name),
-            msg::CrowdMsg::Lock(path) => eng.handle_lock(&client_id, &path),
-            msg::CrowdMsg::TryLock(path) => eng.handle_trylock(&client_id, &path),
-            msg::CrowdMsg::Unlock(path) => eng.handle_unlock(&client_id, &path),
-            msg::CrowdMsg::KeepAlive => eng.handle_keepalive(&client_id),
-            msg::CrowdMsg::Response(_) => eng.handle_keepalive(&client_id),
-            msg::CrowdMsg::Bye => eng.handle_bye(&client_id)
+            msg::CrowdMsg::Hello(name) => eng.handle_hello(client_id, name),
+            msg::CrowdMsg::Lock(path) => eng.handle_lock(client_id, path),
+            msg::CrowdMsg::TryLock(path) => eng.handle_trylock(client_id, path),
+            msg::CrowdMsg::Unlock(path) => eng.handle_unlock(client_id, path),
+            msg::CrowdMsg::KeepAlive => eng.handle_keepalive(client_id),
+            msg::CrowdMsg::Response(_) => eng.handle_keepalive(client_id),
+            msg::CrowdMsg::Bye => eng.handle_bye(client_id)
         };
 
         eng.check_pending();
 
         for dm in eng.out_queue.iter() {
-            responder.send_str(dm.client_id.as_slice(), zmq::SNDMORE).unwrap();
-            //let msg = msg::Response(resp);
-            let payload = msgpack::Encoder::to_msgpack(&dm.msg).ok().unwrap();
-            //println!("send {}", payload.as_slice());
-            responder.send(payload.as_slice(), 0).unwrap();
+            responder.send(&dm.client_id[..], zmq::SNDMORE).unwrap();
+            responder.send(&msg_empty[..], zmq::SNDMORE).unwrap();
+            let mut payload = [0u8; 13];
+            dm.msg.encode(&mut Encoder::new(&mut &mut payload[..])).unwrap();
+            //println!("send {:?}", &payload[..]);
+            responder.send(&payload[..], 0).unwrap();
         }
         eng.out_queue.clear();
 

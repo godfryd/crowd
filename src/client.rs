@@ -2,19 +2,16 @@
 
 extern crate zmq;
 extern crate rmp as msgpack;
-extern crate rustc;
 extern crate rustc_serialize;
+extern crate rand;
 
-extern crate collections;
-
-use std::rand;
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc::channel;
-use std::io;
-use std::old_io::timer;
-use std::time::Duration;
+use std::thread::sleep_ms;
 use std::thread;
-//use std::rand::{task_rng, Rng};
+
+use msgpack::{Encoder, Decoder};
+use rustc_serialize::{Encodable, Decodable};
 
 pub mod msg;
 
@@ -30,12 +27,12 @@ struct ConnTask {
 impl ConnTask {
     fn new(name: String, rx_chan: Receiver<msg::CrowdMsg>, tx_chan: Sender<msg::CrowdMsg>) -> ConnTask {
         let mut ctx = zmq::Context::new();
-        let sock = ctx.socket(zmq::DEALER).unwrap();
-        let x: u32 = rand::random();
-        let mut identity = String::from_str("worker-");
-        identity = identity + x.to_string();
+        //let sock = ctx.socket(zmq::DEALER).unwrap();
+        let sock = ctx.socket(zmq::REQ).unwrap();
+        let x = rand::random::<u32>();
+        let identity = format!("worker-{}", x);
         println!("id {}", identity);
-        sock.set_identity(identity.as_bytes());
+        sock.set_identity(identity.as_bytes()).unwrap();
         ConnTask {
             name: name,
             context: ctx,
@@ -54,24 +51,29 @@ impl ConnTask {
     }
 
     fn recv(&mut self) -> msg::CrowdMsg {
-        let mut payload = zmq::Message::new();
+        let mut payload = zmq::Message::new().unwrap();
         self.requester.recv(&mut payload, 0).unwrap();
-        let b = payload.to_bytes();
+        //let b = payload.to_bytes();
         //println!("recv {}", b);
-        let msg: msg::CrowdMsg = msgpack::from_msgpack(b).ok().unwrap();
+        //let msg: msg::CrowdMsg = msgpack::from_msgpack(b).ok().unwrap();
+        let mut decoder = Decoder::new(&payload[..]);
+        let msg: msg::CrowdMsg = Decodable::decode(&mut decoder).ok().unwrap();
         msg
     }
 
     fn send(&mut self, msg: msg::CrowdMsg) {
-        let payload = msgpack::Encoder::to_msgpack(&msg).ok().unwrap();
-        self.requester.send(payload.as_slice(), 0).unwrap();
+        //let payload = msgpack::Encoder::to_msgpack(&msg).ok().unwrap();
+        //self.requester.send(payload.as_slice(), 0).unwrap();
+        let mut payload = [0u8; 13];
+        msg.encode(&mut Encoder::new(&mut &mut payload[..])).unwrap();
+        self.requester.send(&payload[..], 0).unwrap();
         //println!("sent");
     }
 }
 
 impl Drop for ConnTask {
     fn drop(&mut self) {
-        self.requester.close();
+        self.requester.close().unwrap();
     }
 }
 
@@ -103,15 +105,16 @@ fn run_connection(name: String, rx_chan: Receiver<msg::CrowdMsg>, tx_chan: Sende
 
         // check incoming msgs on connection to server
         let pi = conn.requester.as_poll_item(zmq::POLLIN);
+        let mut pis = [pi];
         println!(">poll");
-        let rc = zmq::poll([pi], 1000).ok().unwrap();
+        let rc = zmq::poll(&mut pis, 1000).ok().unwrap();
         if rc >= 0 {
             println!("poll {}", rc);
-            println!("poll rev {}", pi.get_revents());
-            if pi.get_revents() == zmq::POLLIN {
+            println!("poll rev {}", pis[0].get_revents());
+            if pis[0].get_revents() == zmq::POLLIN {
                 let rmsg = conn.recv();
                 println!("conn sent");
-                conn.tx_chan.send(rmsg);
+                conn.tx_chan.send(rmsg).unwrap();
                 println!("ch tx");
             }
         } else {
@@ -140,8 +143,8 @@ impl CrowdClient {
     }
 
     fn rpc(&mut self, msg: msg::CrowdMsg) -> Result<(), String> {
-        self.tx_chan.send(msg);
-        match self.rx_chan.recv() {
+        self.tx_chan.send(msg).unwrap();
+        match self.rx_chan.recv().unwrap() {
             msg::CrowdMsg::Response(0) => Ok(()),
             _ => Err("failed".to_string())
         }
@@ -176,17 +179,17 @@ impl CrowdClient {
 fn main() {
     println!("Connecting to crowd server...\n");
 
-    let mut client = CrowdClient::new(String::from_str("myname"));
-    let mut rng = rand::thread_rng();
+    let mut client = CrowdClient::new("myname".to_string());
+    //let mut rng = rand::thread_rng();
 
-    for x in range(0, 1000) {
-        let r = client.lock(String::from_str("/my/path"));
-        println!("lock {}", r);
-        let ms: i64 = rng.gen_range(100, 1000).to_i64().unwrap();
-        timer::sleep(Duration::milliseconds(ms));
-        let r = client.unlock(String::from_str("/my/path"));
-        println!("unlock {}", r);
+    for x in 0..1000 {
+        let r = client.lock("/my/path".to_string()).unwrap();
+        println!("lock {:?}", r);
+        let ms = 200;//rng.gen_range(100, 1000);//.unwrap();
+        sleep_ms(ms);
+        let r = client.unlock("/my/path".to_string()).unwrap();
+        println!("unlock {:?}", r);
         //client.keep_alive();
     }
-    client.bye();
+    client.bye().unwrap();
 }

@@ -16,6 +16,7 @@ rustc-serialize = "0.3.15"
 zmq = "0.7.0"
 #msgpack = "0.1.0"
 rmp = "0.3.0"
+rand = "0.3.8"
 
 #[dependencies.zmq]
 #git = "https://github.com/erickt/rust-zmq.git"

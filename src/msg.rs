@@ -6,22 +6,22 @@
 //extern crate "rustc-serialize" as rustc_serialize;
 extern crate rmp as msgpack;
 
-use rustc_serialize::{Encodable, Decodable, Encoder, Decoder};
-use std::io::{Result, Error, ErrorKind};
+//use rustc_serialize::{Encodable, Decodable, Encoder, Decoder};
+use rustc_serialize::{Encodable, Encoder, Decoder};
+//use std::io::{Result, Error, ErrorKind};
+use std::io::{Error};
 //use msgpack::{Decoder};
 
 
-//#[derive(RustcDecodable)]
-//#[derive(RustcEncodable)]
-#[derive(Debug)]
+#[derive(RustcEncodable, RustcDecodable, PartialEq, Debug)]
 pub enum CrowdMsg {
-    Hello(String),
-    Lock(String),
-    TryLock(String),
-    Unlock(String),
-    KeepAlive,
-    Response(u32),
-    Bye
+    Hello(String),   // 0
+    Lock(String),    // 1
+    TryLock(String), // 2
+    Unlock(String),  // 3
+    KeepAlive,       // 4
+    Response(u32),   // 5
+    Bye              // 6
 }
 
 // //impl<R: Reader> rustc_serialize::Decodable<msgpack::Decoder<R>, Error> for CrowdMsg {
