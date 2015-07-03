@@ -1,5 +1,6 @@
 language: rust
 script:
+- sudo apt-get install libzmq3 libzmq3-dev
 - cargo build --verbose
 #- cargo test --verbose
 #- cargo doc --verbose
