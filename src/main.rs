@@ -18,6 +18,7 @@ use std::collections::{VecDeque};
 //use std::time::Duration;
 use msgpack::{Encoder, Decoder};
 use rustc_serialize::{Encodable, Decodable};
+use rustc_serialize::json;
 
 pub mod msg;
 
@@ -44,7 +45,7 @@ impl Engine {
     }
     fn handle_hello(&mut self, client_id: Vec<u8>, name: String) {
         self.sessions.insert(client_id.clone(), Session { client_id: client_id.clone() });
-        println!("{:?}: name {}", client_id, name);
+        println!("{:?}: name {}", String::from_utf8(client_id.clone()).unwrap(), name);
         self.enqueue(client_id, 0);
     }
 
@@ -54,7 +55,7 @@ impl Engine {
             println!("{:?}: locked path {}", String::from_utf8(client_id.clone()).unwrap(), path);
             self.enqueue(client_id, 0);
         } else {
-            println!("{:?}: blocked lock on {} - already locked", client_id, path);
+            println!("{:?}: blocked lock on {} - already locked", String::from_utf8(client_id.clone()).unwrap(), path);
             //let mut t = time::get_time();
             //t.add(Duration::seconds(1))
             //self.time_queue.insert(t, DirectedCrowdMsg { client_id: client_id, msg: msg });
@@ -72,10 +73,10 @@ impl Engine {
     fn handle_trylock(&mut self, client_id: Vec<u8>, path: String) {
         if !self.locks.contains_key(&path) {
             self.locks.insert(path.clone(), client_id.clone());
-            println!("{:?}: trylocked path {}", client_id, path);
+            println!("{:?}: trylocked path {}", String::from_utf8(client_id.clone()).unwrap(), path);
             self.enqueue(client_id, 0);
         } else {
-            println!("{:?}: failed trylock on {}", client_id, path);
+            println!("{:?}: failed trylock on {}", String::from_utf8(client_id.clone()).unwrap(), path);
             self.enqueue(client_id, 1);
         }
     }
@@ -85,11 +86,11 @@ impl Engine {
         match entry {
             Some(ref cid) => {
                 if *cid != client_id {
-                    println!("{:?}: EEEE1 failed unlock on {} - locked by {:?}", client_id, path, cid);
+                    println!("{:?}: EEEE1 failed unlock on {} - locked by {:?}", String::from_utf8(client_id.clone()).unwrap(), path, cid);
                     self.enqueue(client_id, 1);
                 } else {
                     self.locks.remove(&path);
-                    println!("{:?}: unlocked path {}", client_id, path);
+                    println!("{:?}: unlocked path {}", String::from_utf8(client_id.clone()).unwrap(), path);
                     self.enqueue(client_id, 0);
 
                     // notify first waiter
@@ -98,21 +99,21 @@ impl Engine {
                         if c.is_some() {
                             let new_client_id = c.unwrap();
                             self.locks.insert(path.clone(), new_client_id.clone());
-                            println!("{:?}: lock path {} just after unlock", new_client_id, path);
+                            println!("{:?}: lock path {} just after unlock", String::from_utf8(new_client_id.clone()).unwrap(), path);
                             self.enqueue(new_client_id, 0);
                         }
                     }
                 }
             }
             None => {
-                println!("{:?}: EEEE2 failed unlock on {}", client_id, path);
+                println!("{:?}: EEEE2 failed unlock on {}", String::from_utf8(client_id.clone()).unwrap(), path);
                 self.enqueue(client_id, 1);
             }
         }
     }
 
     fn handle_keepalive(&mut self, client_id: Vec<u8>) {
-        println!("{:?}: keepalive", client_id);
+        println!("{:?}: keepalive", String::from_utf8(client_id.clone()).unwrap());
         self.enqueue(client_id, 0);
     }
 
@@ -160,7 +161,7 @@ fn main() {
         let mut decoder = Decoder::new(&msg_data[..]);
         let res = Decodable::decode(&mut decoder);
         if res.is_err() {
-            println!("{:?}: erred msg {:?}", client_id, res.unwrap_err());
+            println!("{:?}: erred msg {:?}", String::from_utf8(client_id.clone()).unwrap(), res.unwrap_err());
             continue;
         }
         let dec: msg::CrowdMsg = res.ok().unwrap();
@@ -181,9 +182,9 @@ fn main() {
         for dm in eng.out_queue.iter() {
             responder.send(&dm.client_id[..], zmq::SNDMORE).unwrap();
             responder.send(&msg_empty[..], zmq::SNDMORE).unwrap();
-            let mut payload = [0u8; 13];
-            dm.msg.encode(&mut Encoder::new(&mut &mut payload[..])).unwrap();
-            //println!("send {:?}", &payload[..]);
+            let mut payload: Vec<u8> = Vec::new();
+            let enc = dm.msg.encode(&mut Encoder::new(&mut payload)).unwrap();
+            //let enc = json::encode(&dm.msg).unwrap();
             responder.send(&payload[..], 0).unwrap();
         }
         eng.out_queue.clear();

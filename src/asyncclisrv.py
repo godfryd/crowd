@@ -1,5 +1,3 @@
-
-
 import zmq
 import threading
 import time
@@ -66,7 +64,7 @@ class CrowdSrv(object):
 
     def keep_alive(self):
         print "%s: keep alive" % self.identity
-        msg = msgpack.packb([4])
+        msg = msgpack.packb([4, ''])
         self.socket.send(msg)
         msg = self.socket.recv()
         msg = msg[0:3]
@@ -76,7 +74,7 @@ class CrowdSrv(object):
 
     def bye(self):
         print "%s: bye" % self.identity
-        msg = msgpack.packb([6])
+        msg = msgpack.packb([6, ''])
         self.socket.send(msg)
         msg = self.socket.recv()
         self.socket.close()
@@ -96,16 +94,16 @@ class ClientTask(threading.Thread):
 
         srv.hello()
 
-        for reqs in xrange(1000):
+        for reqs in xrange(100000):
             print 'Req #%d sent..' % (reqs)
             if srv.try_lock("/a/b/c"):
-                time.sleep(1)
+                #time.sleep(1)
                 srv.unlock("/a/b/c")
 
             srv.keep_alive()
 
             srv.lock("/a/b/c")
-            time.sleep(1)
+            #time.sleep(1)
             srv.unlock("/a/b/c")
 
             srv.keep_alive()

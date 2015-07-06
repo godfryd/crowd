@@ -64,8 +64,8 @@ impl ConnTask {
     fn send(&mut self, msg: msg::CrowdMsg) {
         //let payload = msgpack::Encoder::to_msgpack(&msg).ok().unwrap();
         //self.requester.send(payload.as_slice(), 0).unwrap();
-        let mut payload = [0u8; 13];
-        msg.encode(&mut Encoder::new(&mut &mut payload[..])).unwrap();
+        let mut payload: Vec<u8> = Vec::new();
+        msg.encode(&mut Encoder::new(&mut payload)).unwrap();
         self.requester.send(&payload[..], 0).unwrap();
         //println!("sent");
     }
